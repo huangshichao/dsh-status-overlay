@@ -1,0 +1,56 @@
+{
+  "name": "dsh-status-overlay",
+  "version": "0.1.0",
+  "description": "Desktop overlay for DeepSeek Harness: an always-on-top GTK3 window showing the running task, the tool being executed, and a completion notice — fed by a read-only DSH plugin.",
+  "license": "MIT",
+  "author": "huangshichao",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "SKILL.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "overlay",
+    "status",
+    "gtk3",
+    "uos",
+    "arm64",
+    "linux"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/huangshichao/dsh-status-overlay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/huangshichao/dsh-status-overlay/issues"
+  },
+  "homepage": "https://github.com/huangshichao/dsh-status-overlay#readme"
+}

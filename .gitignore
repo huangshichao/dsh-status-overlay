@@ -1,0 +1,17 @@
+# 运行时产物
+__pycache__/
+*.pyc
+.bug/
+.verify/
+.verify-*
+.test/
+.audit/
+docs/*.png
+
+# 本地安装/调试残留
+*.log
+*.bak
+cordis.patch.yml.bak*
+
+# 内部审计（含私有环境信息，不随仓库发布）
+AUDIT.md

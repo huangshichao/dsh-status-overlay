@@ -1,0 +1,6 @@
+# dsh-status-overlay bundle patch: 把本插件挂进 profile 的层叠里。
+# profile 自己的 cordis.patch.yml 与任何 --patch 覆盖层仍然在它之后生效，
+# 所以这里的行可以被后面的层按 id 覆盖或禁用。
+- insert:
+    - id: dsh-status-overlay
+      name: 'dsh-status-overlay'
