@@ -570,15 +570,18 @@ class Overlay(object):
 
     def current(self):
         sessions = self.state.get('sessions') or {}
+        running = self.running_sessions()
 
-        # 多会话并行时的轮换：**展开时冻结**，这样鼠标放上去能安心读、不会被换走。
-        # 默认关闭（rotateSeconds=0），保持「只显示最近活跃那个」。
-        if self.rotate_seconds > 0 and not self.expanded:
-            running = self.running_sessions()
-            if len(running) > 1:
+        # 铁律：**只要有任务在跑，就显示正在执行的那个**。
+        # 完成的旧任务不许占位置 —— 即使 primary 指向的是它。
+        if running:
+            # 多个并行时才轮换；展开时冻结，方便你读完再换。
+            if self.rotate_seconds > 0 and not self.expanded and len(running) > 1:
                 index = int(time.time() // self.rotate_seconds) % len(running)
                 return running[index]
+            return running[0]          # running 已按最近活动排序
 
+        # 一个都没在跑：回到 primary，让「已完成」留在眼前。
         primary = self.state.get('primary')
         entry = sessions.get(primary) if primary else None
         if entry is None and sessions:
