@@ -162,8 +162,11 @@ DSH 宿主进程
 - **单例锁先 `flock` 再截断写 pid**，否则并发时会把赢家的 pid 清空。
 - **自启项要用 `/usr/bin/python3` 全路径**：`PATH` 里的 `python3` 常常不带 `gi`。
 
-## License
+## 变更记录
 
+逐版本的改动见 [CHANGELOG.md](CHANGELOG.md)。
+
+## License
 MIT，见 [LICENSE](LICENSE)。
 
 ---
