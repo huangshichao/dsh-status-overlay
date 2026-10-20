@@ -107,6 +107,8 @@ class Overlay(object):
         self.state_path = state_path
         self.lock_path = lock_path
         self.state = {}
+        self.config = self.load_config()
+        self.rotate_seconds = float(self.config.get('rotateSeconds') or 0)
         self.sig = None
         self.expanded = False
         self.hidden = False
@@ -544,8 +546,39 @@ class Overlay(object):
             dbg('poll failed: %s' % error)
         return True
 
+    def load_config(self):
+        """读和插件共用的 config.json（可选项都在这里，不进仓库）。
+
+        目前支持：
+          captureReasoning  插件读：要不要采集思考流
+          rotateSeconds     悬浮框读：多个会话并行时每隔几秒轮换显示
+        """
+        try:
+            path = os.path.join(os.path.dirname(os.path.abspath(self.state_path)), 'config.json')
+            with open(path, 'r') as handle:
+                return json.load(handle) or {}
+        except Exception:
+            return {}
+
+    def running_sessions(self):
+        """有任务文本、且正在跑的会话，按最近活动排序。"""
+        sessions = self.state.get('sessions') or {}
+        running = [s for s in sessions.values()
+                   if s.get('status') == 'running' and (s.get('task') or '').strip()]
+        running.sort(key=lambda s: s.get('lastActivity') or 0, reverse=True)
+        return running
+
     def current(self):
         sessions = self.state.get('sessions') or {}
+
+        # 多会话并行时的轮换：**展开时冻结**，这样鼠标放上去能安心读、不会被换走。
+        # 默认关闭（rotateSeconds=0），保持「只显示最近活跃那个」。
+        if self.rotate_seconds > 0 and not self.expanded:
+            running = self.running_sessions()
+            if len(running) > 1:
+                index = int(time.time() // self.rotate_seconds) % len(running)
+                return running[index]
+
         primary = self.state.get('primary')
         entry = sessions.get(primary) if primary else None
         if entry is None and sessions:
