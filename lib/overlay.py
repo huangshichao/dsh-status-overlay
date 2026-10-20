@@ -110,6 +110,7 @@ class Overlay(object):
         self.state_path = state_path
         self.lock_path = lock_path
         self.state = {}
+        self._last_body = None      # 上一次渲染的正文，用于「内容没变就别碰 buffer」
         self.config = self.load_config()
         self.rotate_seconds = float(self.config.get('rotateSeconds') or 0)
         self.sig = None
@@ -202,6 +203,7 @@ class Overlay(object):
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_size_request(-1, EXPANDED_H - 210)
+        self.scroll = scroll
         self.view = Gtk.TextView()
         self.view.set_editable(False)
         self.view.set_cursor_visible(False)
@@ -457,6 +459,8 @@ class Overlay(object):
             self.detail.show_all()
             self.sep.show()
             self.want_h = EXPANDED_H
+            # 重新展开时强制重建正文并跟到底部（之后才尊重用户的滚动位置）
+            self._last_body = None
         else:
             self.detail.hide()
             self.sep.hide()
@@ -707,10 +711,36 @@ class Overlay(object):
                 self.notify(entry, phase)
         self.first_render = False
 
+    def at_bottom(self):
+        """用户当前是否停在正文底部（决定要不要跟着新内容自动滚）。"""
+        try:
+            adjustment = self.scroll.get_vadjustment()
+            if adjustment is None:
+                return True
+            upper = adjustment.get_upper()
+            page = adjustment.get_page_size()
+            return adjustment.get_value() >= upper - page - 8
+        except Exception:
+            return True
+
     def render_detail(self, entry):
         thinking = (entry.get('thinking') or '').strip()
         stream = (entry.get('streamText') or '').strip()
         steps = entry.get('steps') or []
+
+        # 标题和页脚很便宜，每帧更新无所谓。
+        self.detail_title.set_text('思考进展' if thinking else '执行进展')
+        total = len(thinking) + len(stream)
+        self.footer.set_text('思考 %d 字 · 动作 %d 步%s' % (
+            total, len(steps),
+            '' if self.was_running else '（已结束）'))
+
+        # 收起时正文根本看不见。以前这里照旧 set_text + scroll_to_mark，
+        # 每 200ms 重建一次 buffer，等于不停地把滚动位置重置到底部 ——
+        # 用户看到的就是「鼠标一放上去就一直在滚、手动滚了也会被弹回去」。
+        if not self.expanded:
+            self._last_body = None
+            return
 
         parts = []
         if entry.get('task'):
@@ -728,18 +758,21 @@ class Overlay(object):
             parts.append('【最近动作】\n' + '\n'.join(lines))
         if not parts:
             parts = ['（还没有活动。开始一个任务后，这里会实时显示思考与动作。）']
-
         body = '\n\n'.join(parts)
+
+        # 内容没变就完全不要碰 buffer：重建会重置滚动位置。
+        if body == self._last_body:
+            return
+
+        # 只有「刚展开」或「本来就停在底部」才自动跟随；
+        # 用户往上翻了就别抢滚动条。
+        follow = self._last_body is None or self.at_bottom()
+        self._last_body = body
         buffer = self.view.get_buffer()
         buffer.set_text(body)
-        end = buffer.get_end_iter()
-        self.view.scroll_to_mark(buffer.create_mark(None, end, False), 0.0, False, 0.0, 0.0)
-
-        self.detail_title.set_text('思考进展' if thinking else '执行进展')
-        total = len(thinking) + len(stream)
-        self.footer.set_text('思考 %d 字 · 动作 %d 步%s' % (
-            total, len(steps),
-            '' if self.was_running else '（已结束）'))
+        if follow:
+            end = buffer.get_end_iter()
+            self.view.scroll_to_mark(buffer.create_mark(None, end, False), 0.0, False, 0.0, 0.0)
 
     def notify(self, entry, phase):
         ok = phase != 'error'
