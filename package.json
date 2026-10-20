@@ -1,14 +1,11 @@
 {
   "name": "dsh-status-overlay",
-  "version": "0.2.0",
-  "description": "Desktop overlay for DeepSeek Harness (Linux/UOS, arm64) plus a zero-dependency cross-platform MCP server exposing the live agent status.",
+  "version": "0.2.1",
+  "description": "Desktop overlay for DeepSeek Harness: an always-on-top GTK3 window showing the running task, the tool being executed, and a completion notice — fed by a read-only DSH plugin.",
   "license": "MIT",
   "author": "huangshichao",
   "type": "module",
   "main": "./lib/index.js",
-  "bin": {
-    "dsh-status-mcp": "./lib/mcp-server.js"
-  },
   "exports": {
     ".": {
       "default": "./lib/index.js"
@@ -32,10 +29,7 @@
     "gtk3",
     "uos",
     "arm64",
-    "linux",
-    "mcp",
-    "mcp-server",
-    "cross-platform"
+    "linux"
   ],
   "os": [
     "linux"

@@ -46,19 +46,10 @@ PY
   只看它就会误报「已断开」。悬浮框的规则是：静默超过 90s **且** `state.json` 里的
   宿主 `pid` 确实不存在，才显示 `DSH · 已断开（宿主无响应）`。
 
-## 跨平台边界（重要）
+## 运行环境
 
-- **悬浮框本体**：Linux 桌面 + GTK3 + X11。实测 UOS Desktop 20 Pro / Deepin、arm64。
-- **MCP 服务**（`lib/mcp-server.js`）：纯 Node、零依赖、不碰 X11、不要求 python ——
-  任何平台的 MCP 客户端都能接。它只读同一份 `state.json`，提供
-  `get_status` / `list_sessions` / `wait_for_idle` 三个只读工具。
-
-接入（任意 MCP 客户端）：
-
-```json
-{ "mcpServers": { "dsh-status": { "command": "node",
-  "args": ["/绝对路径/lib/mcp-server.js"] } } }
-```
+悬浮框需要 Linux 桌面 + GTK3 + X11（实测 UOS Desktop 20 Pro / Deepin、arm64）。
+插件本身只依赖 Node。
 
 ## 打开 / 关闭
 
