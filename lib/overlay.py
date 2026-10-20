@@ -43,6 +43,9 @@ MARGIN_Y = 24
 WIDTH = 400
 COLLAPSED_H = 100   # 收起态的真实内容高度（实测），want_h 要和它一致才不会摆错
 EXPANDED_H = 460
+# 状态文件多久没动静才「怀疑」宿主失联。这只是第一道闸门：
+# 真正判定还要再确认宿主 pid 已经不在了，否则长时间工具调用会被误报成断开。
+STALE_SILENT_MS = 90000
 
 # 排查用的开关：DSH_OVERLAY_DEBUG=1 时把定位决策写进日志。
 DEBUG = os.environ.get('DSH_OVERLAY_DEBUG') == '1'
@@ -588,6 +591,31 @@ class Overlay(object):
             entry = max(sessions.values(), key=lambda item: item.get('lastActivity') or 0)
         return entry or {}
 
+    def host_alive(self):
+        """state.json 里记录的宿主 pid 是否还在。
+
+        - `True`  进程存在（可能没权限发信号，也算存在）
+        - `False` 进程确实没了
+        - `None`  拿不到 pid，不做判断
+
+        用杀 0 号信号探测，不会真的影响进程。
+        """
+        try:
+            pid = int(self.state.get('pid'))
+        except (TypeError, ValueError):
+            return None
+        if pid <= 0:
+            return None
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return None
+
     def render(self):
         entry = self.current()
         phase = entry.get('phase') or 'idle'
@@ -596,10 +624,13 @@ class Overlay(object):
 
         running = entry.get('status') == 'running'
 
-        # 宿主没了就别装作还在跑：插件每 20s 发一次心跳，超过 60s 没动静
-        # 只可能是 DSH 已经退出/崩溃。否则计时器会一直涨，看着像卡死。
+        # 「断开」只在**确认真连不上**时才说。
+        # 只按 updatedAt 判断会误报：长时间工具调用期间没有任何会话事件，
+        # 插件可能不写盘，文件停更但宿主好好地跑着。
+        # 所以先看静默时长，再拿 state.json 里的宿主 pid 做存在性检查。
         updated_at = self.state.get('updatedAt') or 0
-        stale = bool(running and updated_at and (time.time() * 1000 - updated_at) > 60000)
+        silent_ms = (time.time() * 1000 - updated_at) if updated_at else 0
+        stale = bool(running and silent_ms > STALE_SILENT_MS and self.host_alive() is False)
         if stale:
             running = False
             accent, word = THEMES['idle']
