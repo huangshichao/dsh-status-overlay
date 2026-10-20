@@ -49,6 +49,9 @@ DSH 的界面在浏览器里。可一旦 Agent 开始 **computer use**（切窗�
 | 桌面 | D-UOS / Deepin，Wayland 会话 + **XWayland**（`DISPLAY=:0`） |
 | 运行时 | Node.js ≥ 20（DSH 自带）、**系统 `/usr/bin/python3` + PyGObject(GTK3)**、`notify-send`、`libnotify` |
 
+> 以上约束只针对**悬浮框本体**。MCP 服务（`lib/mcp-server.js`）是纯 Node、
+> 零依赖、跨平台的，任何操作系统/架构都能跑，见 [MCP 服务](#mcp-服务跨平台)。
+
 **要点：GTK 必须走 X11 后端。** Wayland 下 GTK 客户端自己声明的 `keep_above`
 不算数；本机有 XWayland，所以 `overlay.py` 会自己 `setdefault('GDK_BACKEND','x11')`。
 
@@ -101,9 +104,11 @@ DSH 宿主进程
        │  折成状态 JSON（节流 200ms、原子写）
        ▼
  $DSH_HOME/status-overlay/state.json   (0600)
-       ▲  200ms 轮询
-       │
- 桌面悬浮框 overlay.py（系统 python3 + GTK3，X11 后端）
+       ▲                        ▲
+       │ 200ms 轮询              │ 按需读取
+       │                        │
+  桌面悬浮框 overlay.py       MCP 服务 mcp-server.js
+  （python3 + GTK3，X11）      （纯 Node，零依赖，跨平台）
 ```
 
 插件**只读**：不 append 任何会话事件、不注册工具、不注入提示词、不改 DSH 状态。
@@ -111,6 +116,43 @@ DSH 宿主进程
 
 本仓库同时把使用说明注册成 DSH 技能（`status-overlay`，正文见 [`SKILL.md`](SKILL.md)），
 所以它能出现在技能目录里按需加载。
+
+## MCP 服务（跨平台）
+
+悬浮框本体依赖 GTK3 + X11，只能在 Linux 桌面跑；但「读一份 JSON 报告状态」与操作系统、
+CPU 架构无关。所以 **MCP 这一层是纯 Node、零依赖、不碰 X11 也不要求 python**，
+任何平台只要 Node ≥ 18 就能跑，任何 MCP 客户端都能接。
+
+### 接入方式
+
+任意 MCP 客户端（DSH 自身的 MCP client、Claude Desktop、IDE 插件……）配成 stdio 服务即可：
+
+```json
+{
+  "mcpServers": {
+    "dsh-status": {
+      "command": "node",
+      "args": ["/绝对路径/dsh-status-overlay/lib/mcp-server.js"],
+      "env": { "DSH_OVERLAY_STATE": "/path/to/state.json" }
+    }
+  }
+}
+```
+
+`DSH_OVERLAY_STATE` 可省略，默认读 `$DSH_HOME/status-overlay/state.json`（再退回 `~/.dsh/...`）。
+
+### 提供的工具
+
+| 工具 | 作用 |
+| --- | --- |
+| `get_status` | 当前任务：阶段（`thinking`/`tool`/`done`/`error`/`idle`）、正在执行的工具与参数摘要、已用秒数、并行会话数 |
+| `list_sessions` | 列出所有会话（`only_running` 可只看在跑的），用来判断「还有几个任务在跑」 |
+| `wait_for_idle` | 等到没有 running 的会话或超时，避免调用方反复轮询 |
+
+返回的都是**只读快照**，不改任何东西。状态文件不存在时给出可读提示而不是报错。
+
+> `get_status` 里的 `host_pid_alive` 只是「pid 可达性」。在容器/沙箱等独立 PID 命名空间里，
+> 活着的宿主也可能探测不到（假阴性），不要把它当成权威的「DSH 在不在」。
 
 ## 隐私
 

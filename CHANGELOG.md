@@ -2,6 +2,23 @@
 
 本项目的所有重要改动都记在这里。
 
+## [0.2.0] — 2026-10-20
+
+### 新增
+
+- **MCP 服务**（`lib/mcp-server.js`）：零依赖、纯 Node、stdio 传输，把状态文件暴露成
+  `get_status` / `list_sessions` / `wait_for_idle` 三个只读工具。
+  与操作系统和 CPU 架构无关 —— 任何平台只要 Node ≥ 18，任何 MCP 客户端都能接。
+  悬浮框本体仍限定 Linux + GTK3 + X11。
+- `package.json` 增加 `bin.dsh-status-mcp`，安装后可直接作为命令使用。
+- `tools/test_mcp.mjs`：真起子进程、真走 stdio 的协议级测试（初始化、工具列表、
+  三个工具、状态文件缺失、未知方法，17 条断言）。
+
+### 说明
+
+- `get_status` 的 `host_pid_alive` 只表示「pid 可达」；容器/沙箱等独立 PID 命名空间里
+  可能假阴性，不作为权威的存活判断。
+
 ## [0.1.0] — 2026-10-12
 
 首个版本：DSH 的桌面状态悬浮框。
