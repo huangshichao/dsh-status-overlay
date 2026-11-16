@@ -43,9 +43,6 @@ MARGIN_Y = 24
 WIDTH = 400
 COLLAPSED_H = 100   # 收起态的真实内容高度（实测），want_h 要和它一致才不会摆错
 EXPANDED_H = 460
-# 状态文件多久没动静才「怀疑」宿主失联。这只是第一道闸门：
-# 真正判定还要再确认宿主 pid 已经不在了，否则长时间工具调用会被误报成断开。
-STALE_SILENT_MS = 90000
 
 # 排查用的开关：DSH_OVERLAY_DEBUG=1 时把定位决策写进日志。
 DEBUG = os.environ.get('DSH_OVERLAY_DEBUG') == '1'
@@ -116,9 +113,15 @@ class Overlay(object):
         self.sig = None
         self.expanded = False
         self.hidden = False
+        # 主服务(DSH)不在时整个框隐起来（不是显示「已断开」）
+        self.hidden_by_host = False
+        self._host_gone_since = 0.0
+        self._no_state_since = 0.0
+        self.hide_exit_seconds = float(self.config.get('hideExitSeconds', 300) or 0)
         self.anchor_x = None      # 窗口右下角的横坐标
         self.anchor_y = None      # 窗口右下角的纵坐标
-        self.want_h = COLLAPSED_H  # 我们「要求」的高度，不依赖可能滞后的 get_size()
+        self.want_h = -1           # >0 = 指定高度；-1 = 交给内容
+        self._collapsed_h = COLLAPSED_H
         self._grow_up = True       # 当前是向上长（药丸贴底）还是向下长（药丸贴顶）
         self.drag = None
         self.moved = False
@@ -368,9 +371,12 @@ class Overlay(object):
         width, height = self.win.get_size()
         if width <= 1:
             return
-        # get_size() 在 size-allocate 之前返回的还是旧高度。收起方向直接用旧值会把
-        # 窗口先停在展开位置、下一帧再往下跳；所以收起取 want_h，展开取两者较大者。
-        height = self.want_h if self.want_h < height else max(height, self.want_h)
+        if self.want_h > 0:
+            # 展开态：get_size() 在 size-allocate 之前还是旧高度，用 want_h 兜底
+            height = self.want_h
+        else:
+            # 收起态：高度由内容决定，记下来给「向下长」用
+            self._collapsed_h = height
         self.clamp_anchor(area, width)
 
         # 向上长需要上方留得下整个展开高度；留不下就反过来向下长。
@@ -380,7 +386,7 @@ class Overlay(object):
         if grow_up:
             y = self.anchor_y - height          # 底边钉住，向上长
         else:
-            y = self.anchor_y - COLLAPSED_H     # 顶边钉住，向下长
+            y = self.anchor_y - (self._collapsed_h or COLLAPSED_H)   # 顶边钉住，向下长
         x = int(self.anchor_x - width)
         y = int(y)
         y = max(area.y, min(y, area.y + area.height - height))
@@ -464,10 +470,21 @@ class Overlay(object):
         else:
             self.detail.hide()
             self.sep.hide()
-            self.want_h = COLLAPSED_H
+            self.want_h = -1        # 负数 = 高度由内容决定（避免下方留空条）
+
+        # 让「药丸」始终贴住不动的那条边：
+        # 收起时高度由窗口最小高度决定，若药丸只取自然高度，底部会留一条空白，
+        # 展开后药丸又贴到底 —— 两种状态的底边就差 12px。让药丸在收起时撑满即可。
+        card = self.pill.get_parent()
+        if card is not None:
+            try:
+                card.child_set_property(self.pill, 'expand', not expanded)
+                card.child_set_property(self.detail, 'expand', expanded)
+            except Exception as error:
+                dbg('child_set_property failed: %s' % error)
         dbg('set_expanded(%s) want_h=%d size_before=%s' % (
             expanded, self.want_h, self.win.get_size()))
-        self.win.set_size_request(WIDTH, self.want_h)
+        self.win.set_size_request(WIDTH, self.want_h if self.want_h > 0 else -1)
         self.place()
         # 分配是在本轮事件循环之后才发生的：那时再定位一次，否则会按旧高度摆窗，
         # 结果就是展开的窗口从原来的顶边往**下**长到屏幕外。
@@ -534,7 +551,7 @@ class Overlay(object):
                 self.drag = None
             # 悬浮状态以真实指针位置为准（每 200ms 校准），不依赖 enter/leave。
             self._poll_n = getattr(self, '_poll_n', 0) + 1
-            if not self.drag and not self.hidden:
+            if not self.drag and not self.hidden and not self.hidden_by_host:
                 inside = self.pointer_inside()
                 # 每 ~2.4s 记一次判定依据，排查「为什么不收起」时不用猜。
                 if self._poll_n % 12 == 0:
@@ -620,24 +637,55 @@ class Overlay(object):
         except Exception:
             return None
 
+    def sync_host_visibility(self):
+        """主服务不在时把整个框收起来。
+
+        判定：state.json 里的宿主 pid 确实不存在，或 state.json 迟迟不出现。
+        而不是显示「已断开」——没有 DSH 就没有可显示的东西。
+        宿主回来后自动重新显示；连续隐藏超过 hideExitSeconds 则退出进程，避免留下孤儿。
+        """
+        now = time.time()
+        alive = self.host_alive()
+
+        if not os.path.exists(self.state_path):
+            if self._no_state_since == 0:
+                self._no_state_since = now
+            gone = (now - self._no_state_since) > 3.0
+        else:
+            self._no_state_since = 0
+            gone = alive is False
+
+        if gone:
+            if not self.hidden_by_host:
+                self.hidden_by_host = True
+                self._host_gone_since = now
+                dbg('host gone -> hide')
+                self.set_expanded(False)
+                self.win.hide()
+            elif self.hide_exit_seconds > 0 and (now - self._host_gone_since) >= self.hide_exit_seconds:
+                dbg('host gone over %ss -> exit' % self.hide_exit_seconds)
+                Gtk.main_quit()
+            return True
+
+        if self.hidden_by_host:
+            self.hidden_by_host = False
+            self._host_gone_since = 0.0
+            dbg('host back -> show')
+            self.win.show_all()
+            if not self.expanded:
+                self.detail.hide()
+            self.place()
+        return False
+
     def render(self):
+        if self.sync_host_visibility():
+            return
         entry = self.current()
         phase = entry.get('phase') or 'idle'
         accent, word = THEMES.get(phase, THEMES['idle'])
         self.apply_theme(accent)
 
         running = entry.get('status') == 'running'
-
-        # 「断开」只在**确认真连不上**时才说。
-        # 只按 updatedAt 判断会误报：长时间工具调用期间没有任何会话事件，
-        # 插件可能不写盘，文件停更但宿主好好地跑着。
-        # 所以先看静默时长，再拿 state.json 里的宿主 pid 做存在性检查。
-        updated_at = self.state.get('updatedAt') or 0
-        silent_ms = (time.time() * 1000 - updated_at) if updated_at else 0
-        stale = bool(running and silent_ms > STALE_SILENT_MS and self.host_alive() is False)
-        if stale:
-            running = False
-            accent, word = THEMES['idle']
 
         # 新一轮开始：如果用户之前点了隐藏，把它请回来。
         if running and not self.was_running and self.hidden:
@@ -648,9 +696,7 @@ class Overlay(object):
             self.place()
         self.was_running = running
 
-        if stale:
-            headline = 'DSH · 已断开（宿主无响应）'
-        elif phase == 'tool':
+        if phase == 'tool':
             label = entry.get('toolLabel') or entry.get('tool') or '工具'
             headline = '正在执行 · %s' % label
         else:

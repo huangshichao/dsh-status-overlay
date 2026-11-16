@@ -72,9 +72,12 @@ def main():
         width, height = overlay.win.get_size()
         x, y = overlay.win.get_position()
         alloc = overlay.pill.get_allocation()
-        results[(phase, tag)] = (width, height, x, y, y + alloc.y)
-        print('  [%s] %-9s 窗口 %dx%d @ %d,%d  底边=%d  药丸屏幕 y=%d'
-              % (phase, tag, width, height, x, y, y + height, y + alloc.y))
+        # 用**药丸底边**做不变量：药丸高度会随内容（工具行有无文字）变化，
+        # 但它的底边必须钉在不动的那条边上。
+        pill_bottom = y + alloc.y + alloc.height
+        results[(phase, tag)] = (width, height, x, y, pill_bottom)
+        print('  [%s] %-9s 窗口 %dx%d @ %d,%d  底边=%d  药丸底边=%d'
+              % (phase, tag, width, height, x, y, y + height, pill_bottom))
 
     def check_phase(phase, label):
         col = results.get((phase, 'collapsed'))
@@ -87,7 +90,7 @@ def main():
             failures.append('[%s] 展开后没有变高：%d -> %d' % (phase, col[1], exp[1]))
         # 核心不变量：药丸在屏幕上不许动。
         if len({col[4], exp[4], exp2[4]}) != 1:
-            failures.append('[%s] %s：药丸在屏幕上移动了 收起=%d 展开=%d 再展开=%d'
+            failures.append('[%s] %s：药丸底边在屏幕上移动了 收起=%d 展开=%d 再展开=%d'
                             % (phase, label, col[4], exp[4], exp2[4]))
         if exp != exp2:
             failures.append('[%s] 再次展开的几何不稳定：%s vs %s' % (phase, exp, exp2))
